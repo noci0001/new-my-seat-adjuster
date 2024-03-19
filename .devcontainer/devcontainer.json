@@ -1,0 +1,19 @@
+{
+    "name": "Vehicle App Template",
+    "image": "ghcr.io/eclipse-velocitas/devcontainer-base-images/base:v0.2",
+    "remoteUser": "vscode",
+    "customizations": {
+        "vscode": {
+            "settings": {
+                "terminal.integrated.defaultProfile.linux": "zsh",
+                "terminal.integrated.profiles.linux": {
+                    "zsh": {
+                        "path": "/usr/bin/zsh"
+                    }
+                }
+            }
+        }
+    },
+    "onCreateCommand": "bash .devcontainer/scripts/onCreateCommand.sh",
+    "postStartCommand": "bash .devcontainer/scripts/postStartCommand.sh"
+}
