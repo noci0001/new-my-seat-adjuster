@@ -1,5 +1,5 @@
 #!/bin/bash
-
+# This file is maintained by velocitas CLI, do not modify manually. Change settings in .velocitas.json
 # Copyright (c) 2023-2024 Contributors to the Eclipse Foundation
 #
 # This program and the accompanying materials are made available under the
@@ -14,46 +14,68 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-set -e
+echo "#######################################################"
+echo "### Auto-Upgrade CLI                                ###"
+echo "#######################################################"
 
-echo "               ▒▒▒▒▒▒▒▒▒
-         ▓▓▓▓▓▓▓▓▓▓▓▓▓ ▒▒▒              ▓▓ ▒▒
-    █▓▓▓▓▓▓▓▓▓▓▓ ▓▓▓  ▓▓  ▒▒       ▓▓▓▓ ▓▓▒▒
-  ██       ███  ▓▓  ▓▓  ▓▓ ▒▒   ██ ▓ ▓▓▓▓▒▒
-              ███ ▓▓ ▓▓▓ ▓▓  ▒▒ ██▓▓▓▓ ▓▒▒
-                ██  ▓▓ ▓▓ ▓▓▓ ▒▒█ ▓▓▓▓▓▒▒                           ▓▓                       ▓▓▓
-                  ██ ▓▓ ▓▓  ▓▓ ▒▒ ▓▓▓▓▒▒    ▓▓       ▓▓             ▓▓                             ▓▓
-                   ██ ▓▓ ▓▓  ▓▓█▒▒▓▓▓▒▒      ▓▓     ▓▓   ▓▓▓▓▓▓▓    ▓▓   ▓▓▓▓▓▓▓    ▓▓▓▓▓▓▓  ▓▓  ▓▓▓▓▓▓▓   ▓▓▓▓▓▓▓   ▓▓▓▓▓▓▓▓
-                    ██ ▓▓ ▓▓  ▓▓█▓▓▓▓         ▓▓   ▓▓▓  ▓▓▓    ▓▓   ▓▓  ▓▓     ▓▓  ▓▓        ▓▓    ▓▓           ▓▓   ▓▓
-                     ██ ▓▓ ▓▓  ▓▓▓▓▓          ▓▓   ▓▓   ▓▓▓▓▓▓▓▓▓   ▓▓  ▓▓     ▓▓  ▓▓        ▓▓    ▓▓      ▓▓▓▓▓▓▓   ▓▓▓▓▓
-                      ██ ▓▓ ▓▓██▓▓             ▓▓ ▓▓    ▓▓▓         ▓▓  ▓▓     ▓▓  ▓▓        ▓▓    ▓▓     ▓▓    ▓▓        ▓▓▓
-                       ██ ▓▓  ▓▓▓              ▓▓▓▓▓    ▓▓▓         ▓▓  ▓▓▓    ▓▓  ▓▓▓       ▓▓    ▓▓     ▓▓    ▓▓         ▓▓
-                        ██ ▓▓ █▓                ▓▓▓       ▓▓▓▓▓▓▓   ▓▓    ▓▓▓▓▓      ▓▓▓▓▓▓  ▓▓      ▓▓▓    ▓▓▓ ▓▓   ▓▓▓▓▓▓
-                         ██  ██
-                          ████
-"
+ROOT_DIRECTORY=$( realpath "$( cd -- "$(dirname "$0")" >/dev/null 2>&1 ; pwd -P )/../.." )
+DESIRED_VERSION=$(cat $ROOT_DIRECTORY/.velocitas.json | jq .cliVersion | tr -d '"')
 
-echo "###########################################"
-echo "#  Creating your Vehicle App              #"
-echo "###########################################"
+# Get installed CLI version
+INSTALLED_VERSION=v$(velocitas --version | sed -E 's/velocitas-cli\/(\w+.\w+.\w+).*/\1/')
 
-# start fresh, regardless of cached data
-sudo rm -rf ~/.velocitas
+if [ "$DESIRED_VERSION" = "$INSTALLED_VERSION" ]; then
+  echo "> Already up to date!"
+  exit 0
+else
+  echo "> Checking upgrade to $DESIRED_VERSION"
+fi
 
-# Ensure all files within the mounted Git repo are owned by the current user
-# (should be "vscode"). This is required for devContainers running on Windows
-# + WSL2, where mounted files/folders "appear as if they are owned by root"
-# (see https://code.visualstudio.com/remote/advancedcontainers/add-nonroot-user)
-shopt -s extglob
-sudo chown -R $(id -u):$(id -g) ./!(.git)
+AUTHORIZATION_HEADER=""
+if [ "${GITHUB_API_TOKEN}" != "" ]; then
+  AUTHORIZATION_HEADER="-H \"Authorization: Bearer ${GITHUB_API_TOKEN}\""
+fi
 
-velocitas create $VELOCITAS_CREATE_ARGS
+if [ "$DESIRED_VERSION" = "latest" ]; then
+  CLI_RELEASES_URL=https://api.github.com/repos/eclipse-velocitas/cli/releases/latest
+else
+  CLI_RELEASES_URL=https://api.github.com/repos/eclipse-velocitas/cli/releases/tags/${DESIRED_VERSION}
+fi
 
-# Since we kind of hijack the same devContainer and these directories
-# might have been created by a different user ID, we make sure to delete
-# cached velocitas packages in order to avoid conflicts.
-sudo rm -rf ~/.velocitas
+CLI_RELEASES=$(curl -s -L \
+-H "Accept: application/vnd.github+json" \
+-H "X-GitHub-Api-Version: 2022-11-28" \
+${AUTHORIZATION_HEADER} \
+${CLI_RELEASES_URL})
 
-echo "###########################################"
-echo "# DONE! Please rebuild your devContainer. #"
-echo "###########################################"
+res=$?
+if test "$res" != "0"; then
+   echo "the curl command failed with exit code: $res"
+   exit 0
+fi
+
+DESIRED_VERSION_TAG=$(echo ${CLI_RELEASES} | jq -r .name)
+
+if [ "$DESIRED_VERSION_TAG" = "null" ] || [ "$DESIRED_VERSION_TAG" = "" ]; then
+  echo "> Can't find desired Velocitas CLI version: $DESIRED_VERSION. Skipping Auto-Upgrade."
+  exit 0
+fi
+
+if [ "$DESIRED_VERSION_TAG" != "$INSTALLED_VERSION" ]; then
+  echo "> Upgrading CLI..."
+  if [[ $(arch) == "aarch64" ]]; then
+    CLI_ASSET_NAME=velocitas-linux-arm64
+  else
+    CLI_ASSET_NAME=velocitas-linux-x64
+  fi
+  CLI_INSTALL_PATH=/usr/bin/velocitas
+  CLI_DOWNLOAD_URL="https://github.com/eclipse-velocitas/cli/releases/download/${DESIRED_VERSION_TAG}/${CLI_ASSET_NAME}"
+
+  echo "> Downloading Velocitas CLI from ${CLI_DOWNLOAD_URL}"
+  sudo curl -s -L ${CLI_DOWNLOAD_URL} -o "${CLI_INSTALL_PATH}"
+  sudo chmod +x "${CLI_INSTALL_PATH}"
+else
+  echo "> Up to date!"
+fi
+
+echo "> Using CLI: $(velocitas --version)"
